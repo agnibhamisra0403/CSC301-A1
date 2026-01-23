@@ -1,33 +1,47 @@
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.OutputStream;
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+
+import java.io.*;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
- * WorkloadParser - Automated testing tool for the microservices architecture.
+ * OrderService - The public-facing API gateway for the microservices system.
  * 
- * This parser reads workload files containing USER, PRODUCT, and ORDER commands,
- * then translates them into HTTP requests sent to the Order Service.
- * The Order Service routes these requests through the ISCS (Inter-Service Communication Service)
- * to the appropriate microservice (User or Product service).
+ * <p>This service acts as the main entry point for all client requests and provides three key functions:
+ * <ol>
+ *   <li><b>Proxy/Forwarder</b>: Routes user and product requests to ISCS for load balancing and routing</li>
+ *   <li><b>Order Processing</b>: Handles order placement logic including validation and inventory management</li>
+ *   <li><b>Business Logic</b>: Implements the "place order" workflow by coordinating multiple service calls</li>
+ * </ol>
  * 
- * <p>Command Flow:
- * WorkloadParser → Order Service → ISCS → User/Product Service
+ * <p><b>Architecture Flow:</b>
+ * <pre>
+ * Client → OrderService → ISCS → UserService/ProductService
+ *                    ↓
+ *              Order Logic
+ *              (validates user, checks stock, updates inventory)
+ * </pre>
  * 
- * <p>Usage:
- * java WorkloadParser workloadfile.txt
- * 
- * <p>Supported Commands:
+ * <p><b>Endpoints:</b>
  * <ul>
- *   <li>USER create/get/update/delete</li>
- *   <li>PRODUCT create/info/update/delete</li>
- *   <li>ORDER place</li>
+ *   <li>POST /user - Proxied to UserService via ISCS</li>
+ *   <li>GET /user/{id} - Proxied to UserService via ISCS</li>
+ *   <li>POST /product - Proxied to ProductService via ISCS</li>
+ *   <li>GET /product/{id} - Proxied to ProductService via ISCS</li>
+ *   <li>POST /order - Handled locally (place order logic)</li>
  * </ul>
+ * 
+ * <p><b>Configuration:</b>
+ * Requires config.json with OrderService and InterServiceCommunication sections.
+ * 
+ * <p><b>Usage:</b>
+ * java OrderService config.json
  * 
  * @author Assignment Team
  * @version 1.0
@@ -35,399 +49,509 @@ import java.util.regex.Pattern;
 public class temp {
 
     /**
-     * The base URL for the Order Service (e.g., "http://127.0.0.1:14003").
-     * This is constructed from config.json and used as the target for all HTTP requests.
+     * Base URL for the Inter-Service Communication Service (ISCS).
+     * All requests to User and Product services are routed through ISCS.
+     * Format: "http://IP:PORT" (e.g., "http://127.0.0.1:14004")
      */
-    private static String orderServiceUrl;
+    private static String ISCS_URL;
 
     /**
-     * Main entry point for the WorkloadParser.
+     * Main entry point for the OrderService.
      * 
-     * <p>Process:
-     * 1. Validates command-line arguments
-     * 2. Reads config.json to determine Order Service location
-     * 3. Processes the workload file line by line
+     * <p>Startup sequence:
+     * <ol>
+     *   <li>Validates command-line arguments (requires config.json path)</li>
+     *   <li>Loads and parses configuration file</li>
+     *   <li>Extracts OrderService port and ISCS connection details</li>
+     *   <li>Creates HTTP server and registers route handlers</li>
+     *   <li>Starts listening for incoming requests</li>
+     * </ol>
      * 
-     * @param args Command-line arguments. Expected: args[0] = workload file path
+     * <p><b>Route Registration:</b>
+     * <ul>
+     *   <li>/user → ForwardHandler (proxy to ISCS)</li>
+     *   <li>/product → ForwardHandler (proxy to ISCS)</li>
+     *   <li>/order → OrderHandler (local business logic)</li>
+     * </ul>
+     * 
+     * @param args Command-line arguments. Expected: args[0] = path to config.json
+     * @throws IOException If config file cannot be read or server cannot start
      */
-    public static void main(String[] args) {
-        // Validate that a workload file was provided
+    public static void main(String[] args) throws IOException {
+        // Validate command-line arguments
         if (args.length < 1) {
-            System.err.println("Usage: java WorkloadParser <workload_file>");
+            System.err.println("Usage: java OrderService <config.json>");
             System.exit(1);
         }
 
-        String workloadFile = args[0];
+        // Step 1: Load configuration file
+        String configContent = new String(Files.readAllBytes(Paths.get(args[0])));
+        
+        // Step 2: Parse configuration values
+        // Extract this service's port number
+        int myPort = JsonUtils.getServicePort(configContent, "OrderService");
+        
+        // Extract ISCS connection details (where to forward requests)
+        String iscsIp = JsonUtils.getServiceIp(configContent, "InterServiceCommunication");
+        int iscsPort = JsonUtils.getServicePort(configContent, "InterServiceCommunication");
 
-        try {
-            // Step 1: Read config.json to find the Order Service IP and port
-            // The config file should be in the current directory or parent directory
-            String configContent = new String(Files.readAllBytes(Paths.get("config.json")));
-            
-            // Parse the OrderService section to extract IP and port
-            String ip = parseConfig(configContent, "OrderService", "ip");
-            String port = parseConfig(configContent, "OrderService", "port");
-            
-            // Fallback to default values if config parsing fails
-            if (ip == null || port == null) {
-                ip = "127.0.0.1";
-                port = "14003";
-                System.out.println("Warning: Could not parse config. Using default " + ip + ":" + port);
-            }
-            
-            // Construct the base URL for all HTTP requests
-            orderServiceUrl = "http://" + ip + ":" + port;
-            System.out.println("Targeting OrderService at: " + orderServiceUrl);
-
-            // Step 2: Process each line in the workload file
-            processWorkload(workloadFile);
-
-        } catch (Exception e) {
-            e.printStackTrace();
+        // Validate that all required configuration was found
+        if (myPort == -1 || iscsIp == null || iscsPort == -1) {
+            System.err.println("Error parsing config.json");
+            System.exit(1);
         }
+
+        // Step 3: Construct the base URL for ISCS
+        // All user/product requests will be forwarded to this URL
+        ISCS_URL = "http://" + iscsIp + ":" + iscsPort;
+
+        // Step 4: Create and configure HTTP server
+        HttpServer server = HttpServer.create(new InetSocketAddress(myPort), 0);
+
+        // Step 5: Register route handlers
+        // These contexts determine which handler processes each incoming request
+        
+        // Forward all /user requests to ISCS (e.g., /user/123, /user)
+        server.createContext("/user", new ForwardHandler());
+        
+        // Forward all /product requests to ISCS (e.g., /product/456, /product)
+        server.createContext("/product", new ForwardHandler());
+        
+        // Handle /order requests locally with business logic
+        server.createContext("/order", new OrderHandler());
+
+        // Use default executor (creates threads as needed)
+        server.setExecutor(null);
+        
+        // Step 6: Start the server
+        server.start();
+        System.out.println("OrderService running on port " + myPort + " | Forwarding to ISCS at " + ISCS_URL);
     }
 
+    // ============================================================
+    // Handler 1: The Forwarder (Proxy)
+    // Forwards /user and /product requests directly to ISCS
+    // ============================================================
+    
     /**
-     * Processes the workload file line by line, parsing commands and sending HTTP requests.
+     * ForwardHandler - Proxy handler that forwards requests to ISCS.
      * 
-     * <p>Workload File Format:
-     * Each line contains a command in the format:
-     * SERVICE COMMAND [PARAMETERS...]
+     * <p>This handler implements a simple reverse proxy pattern. It:
+     * <ol>
+     *   <li>Receives a request from the client (WorkloadParser or other)</li>
+     *   <li>Forwards the exact same request to ISCS</li>
+     *   <li>Receives the response from ISCS</li>
+     *   <li>Sends that response back to the original client</li>
+     * </ol>
      * 
-     * <p>Example lines:
-     * <pre>
-     * USER create 2 username2NKlLXs elOf@Y4vxdHuRs2620f.com bY3NAKPS
-     * PRODUCT info 4
-     * ORDER place 3 1 1
-     * # This is a comment
-     * </pre>
-     * 
-     * <p>The method:
-     * 1. Reads each line from the file
-     * 2. Skips empty lines, comments (#), and metadata ([])
-     * 3. Parses the service type (USER/PRODUCT/ORDER) and command
-     * 4. Constructs appropriate JSON payload
-     * 5. Sends HTTP request to Order Service
-     * 6. Measures total execution time
-     * 
-     * @param filename Path to the workload file
-     */
-    private static void processWorkload(String filename) {
-        try (BufferedReader br = new BufferedReader(new FileReader(filename))) {
-            String line;
-            long startTime = System.currentTimeMillis();
-
-            // Read file line by line
-            while ((line = br.readLine()) != null) {
-                line = line.trim();
-                
-                // Skip empty lines, comments, and metadata
-                if (line.isEmpty() || line.startsWith("#") || line.startsWith("[")) continue;
-
-                // Split the line into tokens (space-separated)
-                // Example: "USER create 2 username email password"
-                // parts[0] = "USER", parts[1] = "create", parts[2] = "2", etc.
-                String[] parts = line.split("\\s+");
-                String service = parts[0].toUpperCase(); // USER, PRODUCT, or ORDER
-                String command = parts[1].toLowerCase(); // create, update, delete, get, info, place
-
-                // Variables for building the HTTP request
-                String endpoint = "";       // URL path (e.g., "/user" or "/user/2")
-                String method = "POST";     // HTTP method (GET or POST)
-                String jsonPayload = "";    // JSON body for POST requests
-
-                // --- USER COMMANDS ---
-                // Handle all USER service operations
-                if (service.equals("USER")) {
-                    endpoint = "/user";
-                    
-                    if (command.equals("create")) {
-                        // USER create <id> <username> <email> <password>
-                        // Example: USER create 2 username2NKlLXs elOf@Y4vxdHuRs2620f.com bY3NAKPS
-                        // Creates a new user with the specified credentials
-                        jsonPayload = String.format(
-                            "{\"command\":\"create\", \"id\":%s, \"username\":\"%s\", \"email\":\"%s\", \"password\":\"%s\"}",
-                            parts[2], parts[3], parts[4], parts[5]
-                        );
-                        
-                    } else if (command.equals("get")) {
-                        // USER get <id>
-                        // Example: USER get 2
-                        // Retrieves user information for the specified ID
-                        // This uses a GET request with the ID in the URL path
-                        method = "GET";
-                        endpoint = "/user/" + parts[2];
-                        
-                    } else if (command.equals("update")) {
-                        // USER update <id> username:newusername email:newemail password:newpass
-                        // Example: USER update 2 username:un-4Vofkp8EyolNJYJ email:glud@Ucdl4s6HBjq.com
-                        // Updates user fields. Only fields provided are updated (partial updates allowed)
-                        jsonPayload = buildUpdateJson(parts, "update");
-                        
-                    } else if (command.equals("delete")) {
-                        // USER delete <id> <username> <email> <password>
-                        // Example: USER delete 2 4Vofkp8EyolNJYJ glud@Ucdl4s6HBjq.com BkPpkkW1
-                        // Deletes a user ONLY if all credentials match (authentication required)
-                        jsonPayload = String.format(
-                            "{\"command\":\"delete\", \"id\":%s, \"username\":\"%s\", \"email\":\"%s\", \"password\":\"%s\"}",
-                            parts[2], parts[3], parts[4], parts[5]
-                        );
-                    }
-                } 
-                // --- PRODUCT COMMANDS ---
-                // Handle all PRODUCT service operations
-                else if (service.equals("PRODUCT")) {
-                    endpoint = "/product";
-                    
-                    if (command.equals("create")) {
-                        // PRODUCT create <id> <name> <price> <quantity>
-                        // Example: PRODUCT create 2 productname-2398 3.99 9
-                        // Creates a new product with the specified attributes
-                        // Note: Using name as description for simplicity (as per assignment hint)
-                        jsonPayload = String.format(
-                            "{\"command\":\"create\", \"id\":%s, \"name\":\"%s\", \"description\":\"%s\", \"price\":%s, \"quantity\":%s}",
-                            parts[2], parts[3], parts[3], parts[4], parts[5]
-                        );
-                        
-                    } else if (command.equals("info")) {
-                        // PRODUCT info <id>
-                        // Example: PRODUCT info 4
-                        // Retrieves product information for the specified ID
-                        method = "GET";
-                        endpoint = "/product/" + parts[2];
-                        
-                    } else if (command.equals("update")) {
-                        // PRODUCT update <id> name:newname price:4.99 quantity:20
-                        // Example: PRODUCT update 4 name:granola price:4.99 quantity:20
-                        // Updates product fields. Only fields provided are updated
-                        jsonPayload = buildUpdateJson(parts, "update");
-                        
-                    } else if (command.equals("delete")) {
-                        // PRODUCT delete <id> <name> <price> <quantity>
-                        // Example: PRODUCT DELETE 4 granola 4.99 20
-                        // Deletes a product if all fields match (authentication required)
-                        jsonPayload = String.format(
-                            "{\"command\":\"delete\", \"id\":%s, \"name\":\"%s\", \"price\":%s, \"quantity\":%s}",
-                            parts[2], parts[3], parts[4], parts[5]
-                        );
-                    }
-                } 
-                // --- ORDER COMMANDS ---
-                // Handle ORDER service operations
-                else if (service.equals("ORDER")) {
-                    endpoint = "/order";
-                    
-                    if (command.equals("place")) {
-                        // ORDER place <product_id> <user_id> <quantity>
-                        // Example: ORDER place 3 1 1
-                        // Places an order for a user to purchase a product
-                        // This will check if user exists, product exists, and sufficient quantity available
-                        jsonPayload = String.format(
-                            "{\"command\":\"place order\", \"product_id\":%s, \"user_id\":%s, \"quantity\":%s}",
-                            parts[2], parts[3], parts[4]
-                        );
-                    }
-                }
-
-                // Send the HTTP request if a valid endpoint was determined
-                if (!endpoint.isEmpty()) {
-                    sendRequest(method, orderServiceUrl + endpoint, jsonPayload);
-                }
-            }
-            
-            // Calculate and display total execution time
-            long endTime = System.currentTimeMillis();
-            System.out.println("Workload finished in " + (endTime - startTime) + "ms");
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Constructs a JSON payload for UPDATE commands from "key:value" formatted parameters.
-     * 
-     * <p>This helper method handles the parsing of update commands where fields are specified
-     * as "fieldname:value" pairs. It intelligently handles numeric vs. string values.
-     * 
-     * <p>Input Format Examples:
-     * <pre>
-     * USER update 2 username:newuser email:new@email.com password:newpass
-     * PRODUCT update 4 name:granola price:4.99 quantity:20
-     * </pre>
-     * 
-     * <p>Output JSON Example:
-     * <pre>
-     * {"command":"update", "id":2, "username":"newuser", "email":"new@email.com", "password":"newpass"}
-     * </pre>
-     * 
-     * <p>Algorithm:
-     * 1. Start with command and id
-     * 2. Iterate through remaining parts (starting at index 3)
-     * 3. Split each part on ':' to get key-value pairs
-     * 4. Determine if value should be quoted (string) or not (number)
-     * 5. Build JSON string with proper formatting
-     * 
-     * @param parts The tokenized command line (space-separated)
-     *              Format: [SERVICE, COMMAND, ID, field:value, field:value, ...]
-     * @param commandName The command type (typically "update")
-     * @return A JSON string representing the update request
-     */
-    private static String buildUpdateJson(String[] parts, String commandName) {
-        StringBuilder json = new StringBuilder();
-        
-        // Start building the JSON with command and id
-        // parts[2] is the ID (e.g., in "USER update 2 username:...", parts[2] = "2")
-        json.append("{\"command\":\"").append(commandName).append("\", \"id\":").append(parts[2]);
-        
-        // Process each "key:value" pair starting from index 3
-        // Example: "username:newuser" becomes {"username":"newuser"}
-        for (int i = 3; i < parts.length; i++) {
-            String[] kv = parts[i].split(":");
-            
-            // Only process if we have a valid key:value pair
-            if (kv.length == 2) {
-                json.append(", \"").append(kv[0]).append("\":");
-                
-                // Heuristic to determine if value should be numeric or string
-                // price and quantity are numeric fields, others are strings
-                if (kv[0].equals("price") || kv[0].equals("quantity")) {
-                    // Numeric value - no quotes
-                    json.append(kv[1]);
-                } else {
-                    // String value - add quotes
-                    json.append("\"").append(kv[1]).append("\"");
-                }
-            }
-        }
-        
-        json.append("}");
-        return json.toString();
-    }
-
-    /**
-     * Sends an HTTP request to the Order Service and prints the response status code.
-     * 
-     * <p>This method handles both GET and POST requests:
+     * <p><b>Why proxy through OrderService?</b>
      * <ul>
-     *   <li>GET: Retrieves data (used for user/product lookups)</li>
-     *   <li>POST: Sends data (used for create/update/delete/order operations)</li>
+     *   <li>Single entry point for all client requests</li>
+     *   <li>Clients don't need to know about ISCS or service locations</li>
+     *   <li>Easier to add authentication, logging, or rate limiting later</li>
+     *   <li>Prepares architecture for A2 scalability requirements</li>
      * </ul>
      * 
-     * <p>Connection Details:
-     * - Content-Type: application/json (all requests use JSON format)
-     * - Timeout: Uses default Java timeout settings
-     * - Error Handling: Catches connection failures gracefully
-     * 
-     * <p>Response Handling:
-     * The method only prints the HTTP status code. The actual validation
-     * of responses (checking for correct data, status codes, etc.) is done
-     * by the TAs' testing framework.
-     * 
-     * <p>Status Code Meanings:
-     * - 200: Success
-     * - 400: Bad Request (invalid/missing fields)
-     * - 401: Unauthorized (authentication failed)
-     * - 404: Not Found (entity doesn't exist)
-     * - 409: Conflict (duplicate ID)
-     * - 500: Internal Server Error
-     * 
-     * @param method HTTP method ("GET" or "POST")
-     * @param urlStr Complete URL including endpoint (e.g., "http://127.0.0.1:14003/user/2")
-     * @param jsonPayload JSON body for POST requests (empty string for GET requests)
+     * <p><b>Request Flow Example:</b>
+     * <pre>
+     * Client sends:    POST /user → OrderService:14003
+     * OrderService:    POST /user → ISCS:14004
+     * ISCS:            POST /user → UserService:14001
+     * UserService:     Returns 200 OK → ISCS
+     * ISCS:            Returns 200 OK → OrderService
+     * OrderService:    Returns 200 OK → Client
+     * </pre>
      */
-    private static void sendRequest(String method, String urlStr, String jsonPayload) {
-        try {
-            // Create URL object and open connection
-            URL url = new URL(urlStr);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            
-            // Set HTTP method (GET or POST)
-            conn.setRequestMethod(method);
-            
-            // Set content type to JSON for all requests
-            conn.setRequestProperty("Content-Type", "application/json");
-            
-            // For POST requests, write the JSON payload to the request body
-            if (method.equals("POST") && !jsonPayload.isEmpty()) {
-                conn.setDoOutput(true); // Enable output stream for POST body
+    static class ForwardHandler implements HttpHandler {
+        /**
+         * Handles an incoming HTTP request by forwarding it to ISCS.
+         * 
+         * <p>Process:
+         * <ol>
+         *   <li>Extract method (GET/POST), path, and body from incoming request</li>
+         *   <li>Forward to ISCS with same method, path, and body</li>
+         *   <li>Receive response from ISCS</li>
+         *   <li>Send ISCS response back to client with same status code and body</li>
+         * </ol>
+         * 
+         * <p>Error Handling:
+         * If anything goes wrong (network error, ISCS down, etc.), returns 500 Internal Server Error.
+         * 
+         * @param t HttpExchange object representing the request/response
+         * @throws IOException If there's an error reading request or writing response
+         */
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            try {
+                // Step 1: Capture original request details from the client
+                String method = t.getRequestMethod();  // "GET" or "POST"
+                String path = t.getRequestURI().toString();  // e.g., "/user/123" or "/product"
                 
-                // Write JSON data to the output stream
-                try (OutputStream os = conn.getOutputStream()) {
-                    byte[] input = jsonPayload.getBytes("utf-8");
-                    os.write(input, 0, input.length);
-                }
+                // Read the request body (empty for GET requests)
+                String body = new BufferedReader(new InputStreamReader(t.getRequestBody()))
+                        .lines().collect(Collectors.joining("\n"));
+
+                // Step 2: Forward the request to ISCS
+                // Construct full URL: ISCS_URL + path
+                // Example: "http://127.0.0.1:14004" + "/user/123" = "http://127.0.0.1:14004/user/123"
+                Response response = sendRequest(ISCS_URL + path, method, body);
+
+                // Step 3: Send ISCS's response back to the original client
+                // Use the same status code and body that ISCS returned
+                byte[] responseBytes = response.body.getBytes();
+                t.sendResponseHeaders(response.code, responseBytes.length);
+                OutputStream os = t.getResponseBody();
+                os.write(responseBytes);
+                os.close();
+
+            } catch (Exception e) {
+                // If anything goes wrong (ISCS down, network error, etc.)
+                // Return 500 Internal Server Error
+                e.printStackTrace();
+                t.sendResponseHeaders(500, 0);
+                t.getResponseBody().close();
+            }
+        }
+    }
+
+    // ============================================================
+    // Handler 2: The Order Logic
+    // Handles POST /order to place orders
+    // ============================================================
+    
+    /**
+     * OrderHandler - Implements the "place order" business logic.
+     * 
+     * <p>This handler processes order placement requests by coordinating multiple service calls.
+     * Unlike ForwardHandler, this implements actual business logic rather than just proxying.
+     * 
+     * <p><b>Place Order Workflow:</b>
+     * <ol>
+     *   <li>Parse and validate request (command, user_id, product_id, quantity)</li>
+     *   <li>Verify user exists (GET /user/{user_id} via ISCS)</li>
+     *   <li>Verify product exists (GET /product/{product_id} via ISCS)</li>
+     *   <li>Check if sufficient stock available</li>
+     *   <li>Update product inventory (POST /product with reduced quantity via ISCS)</li>
+     *   <li>Generate order ID and save order record</li>
+     *   <li>Return success response with order details</li>
+     * </ol>
+     * 
+     * <p><b>Response Status Messages:</b>
+     * <ul>
+     *   <li>"Success" - Order placed successfully</li>
+     *   <li>"Invalid Request" - Missing fields, user not found, or product not found</li>
+     *   <li>"Exceeded quantity limit" - Not enough stock available</li>
+     * </ul>
+     * 
+     * <p><b>API Specification:</b>
+     * <pre>
+     * Request:
+     * POST /order
+     * {
+     *   "command": "place order",
+     *   "user_id": 1,
+     *   "product_id": 3,
+     *   "quantity": 2
+     * }
+     * 
+     * Success Response (200):
+     * {
+     *   "id": 12345,
+     *   "user_id": 1,
+     *   "product_id": 3,
+     *   "quantity": 2,
+     *   "status": "Success"
+     * }
+     * 
+     * Error Response (400):
+     * {
+     *   "status": "Exceeded quantity limit"
+     * }
+     * </pre>
+     */
+    static class OrderHandler implements HttpHandler {
+        /**
+         * Handles POST /order requests to place orders.
+         * 
+         * <p>This method orchestrates the entire order placement workflow,
+         * making multiple calls to other services via ISCS and implementing
+         * business rules like stock validation.
+         * 
+         * @param t HttpExchange object representing the request/response
+         * @throws IOException If there's an error reading request or writing response
+         */
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            // Only accept POST requests for placing orders
+            if (!t.getRequestMethod().equalsIgnoreCase("POST")) {
+                t.sendResponseHeaders(405, 0); // 405 Method Not Allowed
+                t.getResponseBody().close();
+                return;
             }
 
-            // Get the HTTP response status code
-            // This triggers the actual request to be sent
-            int code = conn.getResponseCode();
+            try {
+                // Step 1: Parse the request body
+                String requestBody = new BufferedReader(new InputStreamReader(t.getRequestBody()))
+                        .lines().collect(Collectors.joining("\n"));
+
+                // Extract the command field
+                String command = JsonUtils.parseString(requestBody, "command");
+
+                // Validate that this is a "place order" command
+                if (!"place order".equalsIgnoreCase(command)) {
+                    sendJson(t, 400, "{\"status\": \"Invalid Request\"}");
+                    return;
+                }
+
+                // Extract required fields from the request
+                Integer userId = JsonUtils.parseInt(requestBody, "user_id");
+                Integer productId = JsonUtils.parseInt(requestBody, "product_id");
+                Integer quantityNeeded = JsonUtils.parseInt(requestBody, "quantity");
+
+                // Validate that all required fields are present
+                if (userId == null || productId == null || quantityNeeded == null) {
+                    sendJson(t, 400, "{\"status\": \"Invalid Request\"}");
+                    return;
+                }
+
+                // Step 2: Verify the user exists
+                // Make a GET request to /user/{user_id} via ISCS
+                Response userRes = sendRequest(ISCS_URL + "/user/" + userId, "GET", null);
+                
+                if (userRes.code == 404) {
+                    // User doesn't exist - return error
+                    sendJson(t, 400, "{\"status\": \"Invalid Request\"}");
+                    return;
+                }
+
+                // Step 3: Verify the product exists and get its details
+                // Make a GET request to /product/{product_id} via ISCS
+                Response productRes = sendRequest(ISCS_URL + "/product/" + productId, "GET", null);
+                
+                if (productRes.code == 404) {
+                    // Product doesn't exist - return error
+                    sendJson(t, 400, "{\"status\": \"Invalid Request\"}");
+                    return;
+                }
+
+                // Step 4: Check if there's enough stock available
+                // Parse the quantity field from the product response
+                Integer currentStock = JsonUtils.parseInt(productRes.body, "quantity");
+                
+                if (currentStock == null || currentStock < quantityNeeded) {
+                    // Not enough stock - return error
+                    sendJson(t, 400, "{\"status\": \"Exceeded quantity limit\"}");
+                    return;
+                }
+
+                // Step 5: Update the product inventory
+                // Calculate new stock level after this order
+                int newStock = currentStock - quantityNeeded;
+                
+                // Build update request payload
+                // Note: According to API spec, only updating quantity is fine (partial update allowed)
+                String updatePayload = String.format(
+                    "{\"command\": \"update\", \"id\": %d, \"quantity\": %d}", 
+                    productId, newStock
+                );
+                
+                // Send POST request to update the product
+                Response updateRes = sendRequest(ISCS_URL + "/product", "POST", updatePayload);
+
+                // Step 6: Check if inventory update succeeded
+                if (updateRes.code == 200) {
+                    // Success! The order can be completed
+                    
+                    // Generate a unique order ID
+                    // Using timestamp modulo for simplicity (could use UUID or sequential ID)
+                    int orderId = (int)(System.currentTimeMillis() % 100000); 
+
+                    // Step 7: Save order to local storage for persistence
+                    // This ensures orders survive service restarts (requirement from assignment)
+                    saveOrderLocally(orderId, userId, productId, quantityNeeded);
+
+                    // Step 8: Construct success response JSON
+                    String responseJson = String.format(
+                        "{\"id\": %d, \"product_id\": %d, \"user_id\": %d, \"quantity\": %d, \"status\": \"Success\"}",
+                        orderId, productId, userId, quantityNeeded
+                    );
+
+                    // Send 200 OK with order details
+                    sendJson(t, 200, responseJson);
+                    
+                } else {
+                    // Inventory update failed - return error
+                    // This could happen if ProductService is down or there's a database error
+                    sendJson(t, 500, "{\"status\": \"Internal Error\"}");
+                }
+
+            } catch (Exception e) {
+                // Catch any unexpected errors (parsing errors, network issues, etc.)
+                e.printStackTrace();
+                sendJson(t, 500, "{\"status\": \"Internal Server Error\"}");
+            }
+        }
+
+        /**
+         * Saves order information to local file for persistence.
+         * 
+         * <p>This simple persistence mechanism ensures that orders are not lost
+         * if the OrderService restarts. Orders are appended to "orders.txt" in
+         * CSV format: id,user_id,product_id,quantity
+         * 
+         * <p><b>Example orders.txt content:</b>
+         * <pre>
+         * 12345,1,3,2
+         * 12346,2,5,1
+         * 12347,1,3,5
+         * </pre>
+         * 
+         * <p>Note: This is a simple implementation for A1. For A2, you'll likely
+         * need a proper database to handle high volumes and concurrent access.
+         * 
+         * @param id Order ID
+         * @param uid User ID who placed the order
+         * @param pid Product ID that was ordered
+         * @param qty Quantity ordered
+         */
+        private void saveOrderLocally(int id, int uid, int pid, int qty) {
+            try (FileWriter fw = new FileWriter("orders.txt", true);  // true = append mode
+                 BufferedWriter bw = new BufferedWriter(fw);
+                 PrintWriter out = new PrintWriter(bw)) {
+                
+                // Write order as CSV: id,user_id,product_id,quantity
+                out.println(id + "," + uid + "," + pid + "," + qty);
+                
+            } catch (IOException e) {
+                // If file write fails, log but don't crash the service
+                // The order was still placed successfully in terms of inventory
+                System.err.println("Warning: Failed to save order to file: " + e.getMessage());
+            }
+        }
+
+        /**
+         * Helper method to send JSON response to client.
+         * 
+         * <p>Sets proper headers, status code, and writes JSON body.
+         * 
+         * @param t HttpExchange object for the request/response
+         * @param code HTTP status code (200, 400, 500, etc.)
+         * @param json JSON string to send as response body
+         * @throws IOException If there's an error writing the response
+         */
+        private void sendJson(HttpExchange t, int code, String json) throws IOException {
+            byte[] bytes = json.getBytes();
             
-            // Print the result for logging/debugging
-            // Format: "POST http://127.0.0.1:14003/user [200]"
-            System.out.println(method + " " + urlStr + " [" + code + "]");
+            // Send response headers with status code and content length
+            t.sendResponseHeaders(code, bytes.length);
             
-        } catch (Exception e) {
-            // If connection fails (service down, network error, etc.), print error
-            System.out.println("Failed to connect to " + urlStr);
+            // Write JSON body
+            OutputStream os = t.getResponseBody();
+            os.write(bytes);
+            os.close();
+        }
+    }
+
+    // ============================================================
+    // HTTP Helper Methods
+    // ============================================================
+    
+    /**
+     * Simple container class for HTTP response data.
+     * 
+     * <p>Holds both the status code and response body together,
+     * making it easier to pass response data between methods.
+     * 
+     * <p><b>Example usage:</b>
+     * <pre>
+     * Response res = sendRequest(url, "GET", null);
+     * if (res.code == 200) {
+     *     System.out.println("Success: " + res.body);
+     * }
+     * </pre>
+     */
+    static class Response {
+        /** HTTP status code (200, 404, 500, etc.) */
+        int code;
+        
+        /** Response body as a string (typically JSON) */
+        String body;
+        
+        /**
+         * Constructs a Response object.
+         * 
+         * @param code HTTP status code
+         * @param body Response body content
+         */
+        public Response(int code, String body) {
+            this.code = code;
+            this.body = body;
         }
     }
 
     /**
-     * Parses config.json to extract IP address or port for a specific service.
+     * Sends an HTTP request to ISCS and returns the response.
      * 
-     * <p>This is a lightweight JSON parser that uses regex to extract values
-     * without requiring external JSON libraries (which aren't allowed per assignment requirements).
+     * <p>This is a general-purpose HTTP client method used by both handlers
+     * to communicate with ISCS. It handles both GET and POST requests.
      * 
-     * <p>Config.json Format:
+     * <p><b>Usage Examples:</b>
      * <pre>
-     * {
-     *   "OrderService": {
-     *     "port": 14003,
-     *     "ip": "127.0.0.1"
-     *   },
-     *   "UserService": {
-     *     "port": 14001,
-     *     "ip": "127.0.0.1"
-     *   }
-     * }
+     * // GET request (check if user exists)
+     * Response res = sendRequest("http://127.0.0.1:14004/user/2", "GET", null);
+     * 
+     * // POST request (update product)
+     * String json = "{\"command\":\"update\", \"id\":3, \"quantity\":10}";
+     * Response res = sendRequest("http://127.0.0.1:14004/product", "POST", json);
      * </pre>
      * 
-     * <p>Regex Pattern Explanation:
-     * The regex searches for: "ServiceName": { ... "key": "value" ... }
-     * It handles both quoted strings ("127.0.0.1") and unquoted numbers (14003)
+     * <p><b>Features:</b>
+     * <ul>
+     *   <li>Automatically sets Content-Type header for POST requests</li>
+     *   <li>Handles both success and error response streams</li>
+     *   <li>Returns both status code and body for easy processing</li>
+     * </ul>
      * 
-     * <p>Example Usage:
-     * <pre>
-     * parseConfig(jsonString, "OrderService", "ip")     // Returns "127.0.0.1"
-     * parseConfig(jsonString, "OrderService", "port")   // Returns "14003"
-     * </pre>
-     * 
-     * @param json The entire config.json file content as a string
-     * @param service The service name to look for (e.g., "OrderService", "UserService")
-     * @param key The specific key to extract (e.g., "ip", "port")
-     * @return The value as a string, or null if not found
+     * @param urlStr Complete URL to send request to (e.g., "http://127.0.0.1:14004/user/2")
+     * @param method HTTP method ("GET" or "POST")
+     * @param body Request body for POST requests (null for GET requests)
+     * @return Response object containing status code and response body
+     * @throws IOException If there's a network error or connection failure
      */
-    private static String parseConfig(String json, String service, String key) {
-        // Build regex pattern to find: "ServiceName": { ... "key": "value" ... }
-        // Pattern matches the service block and extracts the key's value
-        // The \"? makes quotes optional (handles both strings and numbers)
-        Pattern pattern = Pattern.compile(
-            "\"" + service + "\"\\s*:\\s*\\{[^}]*\"" + key + "\"\\s*:\\s*\"?([^,\"}]+)\"?"
-        );
+    public static Response sendRequest(String urlStr, String method, String body) throws IOException {
+        // Step 1: Create URL and open connection
+        URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod(method);
         
-        Matcher matcher = pattern.matcher(json);
+        // Step 2: If this is a POST request with a body, send it
+        if (body != null && !body.isEmpty()) {
+            conn.setDoOutput(true);  // Enable output stream for POST body
+            
+            // Set Content-Type header to tell server we're sending JSON
+            conn.setRequestProperty("Content-Type", "application/json");
+            
+            // Write the body to the request
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.getBytes());
+            }
+        }
+
+        // Step 3: Get the HTTP response status code
+        int code = conn.getResponseCode();
         
-        // If pattern found, return the captured value (group 1)
-        if (matcher.find()) {
-            return matcher.group(1);
+        // Step 4: Read the response body
+        // For error responses (4xx, 5xx), we need to read from ErrorStream instead of InputStream
+        InputStream stream = (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
+        
+        String responseBody = "";
+        if (stream != null) {
+            // Read all lines from the stream and join them
+            responseBody = new BufferedReader(new InputStreamReader(stream))
+                    .lines().collect(Collectors.joining("\n"));
         }
         
-        // Return null if service or key not found in config
-        return null;
+        // Step 5: Return both the status code and body
+        return new Response(code, responseBody);
     }
 }
-
-
-
-
