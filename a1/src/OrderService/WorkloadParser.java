@@ -115,7 +115,7 @@ public class WorkloadParser {
                     // info
                     else if (command.equals("info")) {
                         method = "GET";
-                        endpoint = "/user/" + tokens[2];
+                        endpoint = "/product/" + tokens[2];
 
                     }
 
