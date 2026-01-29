@@ -1,31 +1,25 @@
-package UserService;
+package ProductService;
 
-import Helpers.Helpers;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
 
-/**
- * Class UserService to handle user(s) related operations. 
- * 
- * @author misraagn
-*/
-public class UserService {
-    // memory database to store users
-    private static final Map<Integer, String> userDataBase = new HashMap<>();
+import Helpers.Helpers;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 
+public class ProductService {
+    // memory database to store products
+    private static final Map<Integer, String> productDataBase = new HashMap<>();
+    
     /**
-     * The main function for the UserService class
+     * The main function for the ProductService class
      * 
      * @param args the command line arguements
      * @throws IOException if there is an error while writing or reading
@@ -38,10 +32,10 @@ public class UserService {
             System.exit(1);
         }
 
-        // use the config file to get the user server's ip and port
+                // use the config file to get the products server's ip and port
         String config = new String(Files.readAllBytes(Paths.get(args[0])));
-        String ip = Helpers.getIP(config, "UserService");
-        int port = Helpers.getPort(config, "UserService");
+        String ip = Helpers.getIP(config, "ProductService");
+        int port = Helpers.getPort(config, "ProductService");
 
         // check the validity of the results
         if (port == -1 || ip == null) {
@@ -51,20 +45,20 @@ public class UserService {
 
         // create and start the http server
         HttpServer server = HttpServer.create(new InetSocketAddress(ip, port), 0);
-        server.createContext("/user", new UserHandler());
+        server.createContext("/product", new ProductHandler());
 
         // no concurrency needed for A1 as seen on piazza (CHANGE IN A2)
         server.setExecutor(null);
         server.start();
-        System.out.println("UserService started: " + ip + ":" + port);
+        System.out.println("ProductService started: " + ip + ":" + port);
     }
 
     /**
-     * The http handler class for userService
+     * The http handler class for product Service
      * 
      * @author Agnibha Misra 
      */
-    public static class UserHandler implements HttpHandler {
+    public static class ProductHandler implements HttpHandler {
         /**
          * the handle method
          * 
@@ -108,7 +102,7 @@ public class UserService {
         }
 
         /**
-         * The GET method handler for the UserServices class
+         * The GET method handler for the ProductServices class
          * @param exchange the Exchange object for the request and the response
          * @param path the path for the request
          * @throws IOException if error on writing or reading
@@ -129,16 +123,16 @@ public class UserService {
 
             try {
                 int id = Integer.parseInt(tokens[2]);
-                if (userDataBase.containsKey(id)) {
-                    // send a message back, the user's information
-                    byte[] bytes = userDataBase.get(id).getBytes(StandardCharsets.UTF_8);
+                if (productDataBase.containsKey(id)) {
+                    // send a message back, the products's information
+                    byte[] bytes = productDataBase.get(id).getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
                     os.close();
                 }
                 else {
-                    // send a message back, the user does not exists
+                    // send a message back, the product does not exists
                     byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(404, bytes.length);
                     OutputStream os = exchange.getResponseBody();
@@ -156,7 +150,7 @@ public class UserService {
         }
 
         /**
-         * The POST method handler for the UserServices class
+         * The POST method handler for the productServices class
          * @param exchange the Exchange object for the request and the response
          * @param path the path for the request
          * @throws IOException if error on writing or reading
@@ -185,10 +179,9 @@ public class UserService {
 
             // Delete case:
             if (command.equalsIgnoreCase("delete")) {
-
-                // check if user is in the data base
-                if (!userDataBase.containsKey(id)) {
-                    // send a message back, the target user to delete doesn't exist it the database
+                // check if product is in the data base
+                if (!productDataBase.containsKey(id)) {
+                    // send a message back, the target product to delete doesn't exist it the database
                     byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(404, bytes.length);
                     OutputStream os = exchange.getResponseBody();
@@ -197,30 +190,29 @@ public class UserService {
                     return;
                 }
 
-                // get the user data from the database
-                String userObject = userDataBase.get(id);
-                String DBUsername = Helpers.parseString(userObject, "username");
-                String DBEmail = Helpers.parseString(userObject, "email");
-                String DBHashedPassword = Helpers.parseString(userObject, "password"); 
+                // get the product data from the database
+                String productObject = productDataBase.get(id);
+                String DBName = Helpers.parseString(productObject, "name");
+                Float DBPrice = Helpers.parseFloat(productObject, "price");
+                Integer DBQuantity = Helpers.parseInteger(productObject, "quantity");
 
-                // get the user data from the request
-                String requestUsername = Helpers.parseString(body, "username");
-                String requestEmail = Helpers.parseString(body, "email");
-                String requestPassword = Helpers.parseString(body, "password");
+                // get the product data from the request
+                String requestName = Helpers.parseString(body, "name");
+                Float requestPrice = Helpers.parseFloat(body, "price");
+                Integer requestQuantity = Helpers.parseInteger(body, "quantity");
 
-                String requestHashedPassword = passwordHasher(requestPassword);
-
-                if ((DBUsername != null && requestUsername != null) || (DBEmail != null && requestEmail != null) || (DBHashedPassword != null && requestHashedPassword != null)) {
+                // check if there was any error parsing the values
+                if ((DBName != null && requestName != null) || (DBPrice != null && requestPrice != null) || (DBQuantity != null && requestQuantity != null)) {
                     byte[] bytes = "{\"status\": \"Cannot delete\"}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
                     os.close();
                 }
-                
+
                 // check for any mismatch
-                if (!DBEmail.equals(requestEmail) || !DBHashedPassword.equals(requestHashedPassword) || !DBUsername.equals(requestUsername)) {
-                    byte[] bytes = "{\"status\": \"Cannot delete (USER details do not match DataBase)\"}".getBytes(StandardCharsets.UTF_8);
+                if (!DBName.equals(requestName) || DBQuantity != requestQuantity || (Math.abs(requestPrice - DBPrice) < 0.0001)) {
+                    byte[] bytes = "{\"status\": \"Cannot delete (mismatch between databse and request)\"}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(401, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -230,7 +222,7 @@ public class UserService {
                 // can delete safely
                 else {
                     // send the success message
-                    userDataBase.remove(id);
+                    productDataBase.remove(id);
                     byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, bytes.length);
                     OutputStream os = exchange.getResponseBody();
@@ -242,10 +234,9 @@ public class UserService {
 
             // Create case:
             else if (command.equalsIgnoreCase("create")) {
-                
-                // check whether the user already is in the database
-                if (userDataBase.containsKey(id)) {
-                    byte[] bytes = "{\"status\": \"User already in database\"}".getBytes(StandardCharsets.UTF_8);
+                // check whether the product already is in the database
+                if (productDataBase.containsKey(id)) {
+                    byte[] bytes = "{\"status\": \"product already in database\"}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(409, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -253,11 +244,14 @@ public class UserService {
                     return;
                 }
 
-                String email = Helpers.parseString(body, "email");
-                String username = Helpers.parseString(body, "username");
-                String password = Helpers.parseString(body, "password");
+                // Parse the data
+                String name = Helpers.parseString(body, "name");
+                String description = Helpers.parseString(body, "description");
+                Integer quantity = Helpers.parseInteger(body, "quantity");
+                Float price = Helpers.parseFloat(body, "price");
 
-                if (username == null || email == null || password == null) {
+                // check for bad inputs
+                if (name == null || description == null || quantity == null || quantity < 0 || price == null || price < 0) {
                     // send message back, empty case (failed parsing or bad request input)
                     byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
@@ -266,39 +260,25 @@ public class UserService {
                     os.close();
                     return;
                 }
-
-                // create the new user JSON object
-                String hashedPW = passwordHasher(password);
-
-                // check if the AI generated hash function actually outputted a valid hash
-                if (hashedPW == null) {
-                    // send response based on the failure
-                    byte[] bytes = "{\"status\": \"Error during password hashing\"}".getBytes(StandardCharsets.UTF_8);
-                    exchange.sendResponseHeaders(500, bytes.length);
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(bytes);
-                    os.close();
-                    return;
-                }
-
-                String userObject = String.format("{\"id\": %d, \"username\": \"%s\", \"email\": \"%s\", \"password\": \"%s\"}", id, username, email, hashedPW);
-
-                // put the user JSON obect into the data base and send a success message
-                userDataBase.put(id, userObject);
+                
+                String productObject = String.format("{\"id\": %d, \"name\": \"%s\", \"description\": \"%s\", \"price\": %.2f, \"quantity\": %d}", id, name, (description != null ? description : ""), price, quantity);
+                // put the product JSON obect into the data base and send a success message
+                productDataBase.put(id, productObject);
                 byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
                 OutputStream os = exchange.getResponseBody();
                 os.write(bytes);
                 os.close();
                 return;
+            
+            
             }
 
-            // Update case:
+            // Update case: 
             else if (command.equalsIgnoreCase("update")) {
-
-                // make sure the user exists in the database
-                if (!userDataBase.containsKey(id)) {
-                    // user does not exist in the database
+                // make sure the product exists in the database
+                if (!productDataBase.containsKey(id)) {
+                    // product does not exist in the database
                     byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(404, bytes.length);
                     OutputStream os = exchange.getResponseBody();
@@ -308,86 +288,11 @@ public class UserService {
                 }
 
                 // pull the object from the databse
-                String userObject = userDataBase.get(id);
+                String productObject = productDataBase.get(id);
+
                 
-                // get the non-updated metadata of the object
-                String email = Helpers.parseString(userObject, "email");
-                String username = Helpers.parseString(userObject, "username");
-                String password = Helpers.parseString(userObject, "password");
 
-                // get the updated metadata of the object
-                String updatedEmail = Helpers.parseString(body, "email");
-                String updatedUsername = Helpers.parseString(body, "username");
-                String updatedPassword = Helpers.parseString(body, "password");
 
-                // check if the parameters need updating, if so then update
-                if (updatedEmail != null) {email = updatedEmail;} 
-                if (updatedUsername != null) {username = updatedUsername;}
-                if (updatedPassword != null) {password = passwordHasher(updatedPassword);}
-
-                // check if the AI generated hash function actually outputted a valid hash
-                if (password == null) {
-                    // send response based on the failure
-                    byte[] bytes = "{\"status\": \"Error during password hashing\"}".getBytes(StandardCharsets.UTF_8);
-                    exchange.sendResponseHeaders(500, bytes.length);
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(bytes);
-                    os.close();
-                    return;
-                }
-
-                // create the new user JSON object and place it into the database
-                String updatedUserObject = String.format("{\"id\": %d, \"username\": \"%s\", \"email\": \"%s\", \"password\": \"%s\"}", id, username, email, password);
-                userDataBase.put(id, updatedUserObject);
-
-                // send the success response back
-                byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(200, bytes.length);
-                OutputStream os = exchange.getResponseBody();
-                os.write(bytes);
-                os.close();
-                return;
-            }
-
-            // Invalid command case:
-            else {
-                // 
-                byte[] bytes = "{\"status\": \"Invalid Command\"}".getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(400, bytes.length);
-                OutputStream os = exchange.getResponseBody();
-                os.write(bytes);
-                os.close();
-                return;
-            }
-
-        }
-
-        /**
-         * Crearte a hashed password based on the SHA-256 algorithm
-         * 
-         * This function was Mostly AI-generate with the following prompt to Gemini:
-         * 
-         * "Create me a function in java without ant external libraries that takes in
-         * a String password and uses the SHA-256 algorithm to hash it and return 
-         * the String output."
-         * 
-         * 
-         * @param pw unhased password
-         * @return hashed password
-         */
-        private String passwordHasher (String pw) {
-            try {
-                MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                byte[] encodedhash = digest.digest(pw.getBytes(StandardCharsets.UTF_8));
-                StringBuilder hexString = new StringBuilder();
-                for (byte b : encodedhash) {
-                    String hex = Integer.toHexString(0xff & b);
-                    if (hex.length() == 1) hexString.append('0');
-                    hexString.append(hex);
-                }
-                return hexString.toString();
-            } catch (Exception e) {
-                return null;
             }
         }
     }
