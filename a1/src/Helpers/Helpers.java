@@ -8,7 +8,6 @@ import java.net.URL;
 import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.net.ssl.HttpsURLConnection;
 /**
  * Add this later (come back to this)
  */
@@ -123,7 +122,7 @@ public class Helpers {
     public static Object[] requestSend(String url, String method, String body) throws IOException {
         // use the url to create a connection
         URL Url = new URL(url);
-        HttpURLConnection connection = (HttpsURLConnection) Url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) Url.openConnection();
         connection.setRequestMethod(method);
 
         // in the case that this is a post request

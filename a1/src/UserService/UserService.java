@@ -210,7 +210,7 @@ public class UserService {
 
                 String requestHashedPassword = passwordHasher(requestPassword);
 
-                if ((DBUsername != null && requestUsername != null) || (DBEmail != null && requestEmail != null) || (DBHashedPassword != null && requestHashedPassword != null)) {
+                if (DBUsername == null || requestUsername == null || DBEmail == null || requestEmail == null || DBHashedPassword == null || requestHashedPassword == null) {
                     byte[] bytes = "{\"status\": \"Cannot delete\"}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
                     OutputStream os = exchange.getResponseBody();

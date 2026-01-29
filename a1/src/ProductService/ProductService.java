@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
 
+import com.sun.net.httpserver.HttpServer;
 import Helpers.Helpers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -290,7 +291,7 @@ public class ProductService {
                 // pull the object from the databse
                 String productObject = productDataBase.get(id);
 
-                
+
 
 
             }

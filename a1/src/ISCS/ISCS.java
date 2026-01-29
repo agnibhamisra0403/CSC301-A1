@@ -71,7 +71,7 @@ public class ISCS {
         public void handle(HttpExchange exchange) throws IOException {
             try {
                 // get the path in the form of /user... or /product...
-                String path = exchange.getRequestURI().toString();
+                String path = exchange.getRequestURI().getPath();
                 String url = "";
 
                 // check whether the path starts with product or user and modify the URL appropriately
