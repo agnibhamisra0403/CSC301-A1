@@ -126,7 +126,7 @@ public class Helpers {
         connection.setRequestMethod(method);
 
         // in the case that this is a post request
-        if (body != null && !body.isEmpty()) {
+        if (body != null && !body.isEmpty() && method.equalsIgnoreCase("post")) {
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json");
 
