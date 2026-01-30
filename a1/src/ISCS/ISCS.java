@@ -19,6 +19,8 @@ public class ISCS {
     private static String userURL;
     // URL of the productService
     private static String productURL;
+    // URL of the orderService
+    private static String orderURL;
     
     /**
      * Initializes the ISCS server and resolves internal service endpoints from config.json.
@@ -31,11 +33,17 @@ public class ISCS {
             System.exit(1);
         }
 
+        
+
         // get the config file from the input parameters
         String config = new String(Files.readAllBytes(Paths.get(args[0])));
 
         // get the port of ISCS
         int port = Helpers.getPort(config, "InterServiceCommunication");
+
+        int portOrder = Helpers.getPort(config, "OrderService");
+        String IpOrder = Helpers.getIP(config, "OrderService");
+        orderURL = "http://" + IpOrder + ":" + portOrder;
 
         // get the IP and  port of product and user
         int portProduct = Helpers.getPort(config, "ProductService");
@@ -77,7 +85,10 @@ public class ISCS {
                     url = productURL + path;
                 }
                 else if (path.startsWith("/user")) {
-                    url = userURL + path; 
+                    url = userURL + path;
+                }
+                else if (path.startsWith("/order")) {
+                    url = orderURL + path;
                 }
                 else {
                     // the path is invalid/doesn't exist
