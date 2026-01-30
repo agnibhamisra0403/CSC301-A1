@@ -3,7 +3,7 @@ import requests
 import os
 
 # Configuration based on your config.json
-BASE_URL = "http://127.0.0.1:14002" 
+BASE_URL = "http://127.0.0.1:14006"
 PAYLOADS_DIR = "CSC301_2025_A1/CSC301_A1_testcases/payloads"
 RESPONSES_DIR = "CSC301_2025_A1/CSC301_A1_testcases/responses"
 

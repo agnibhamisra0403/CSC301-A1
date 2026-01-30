@@ -366,9 +366,15 @@ public class UserService {
 
 
                 // check if the parameters need updating, if so then update
-                if (updatedEmail != null) {email = updatedEmail;}
-                if (updatedUsername != null) {username = updatedUsername;}
-                if (updatedPassword != null) {password = passwordHasher(updatedPassword);}
+                if (updatedEmail != null && !updatedEmail.isEmpty()) {
+                    email = updatedEmail;
+                }
+                if (updatedUsername != null && !updatedUsername.isEmpty()) {
+                    username = updatedUsername;
+                }
+                if (updatedPassword != null && !updatedPassword.isEmpty()) {
+                    password = passwordHasher(updatedPassword);
+                }
 
                 if ((updatedEmail != null && updatedEmail.isEmpty()) || 
                 (updatedUsername != null && updatedUsername.isEmpty()) || 
