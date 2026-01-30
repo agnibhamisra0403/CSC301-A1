@@ -10,9 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Scanner;
 /**
- * The Inter-service Communication Service class used as a router and load balancer
- * Sits between orderService and load/user services as seen in architecture.png
- * 
+ * The Inter-service Communication Service class. Acts as a central router 
+ * and load balancer between the Order Service and the User/Product services.
  * @author Agnibha Misra
  */
 public class ISCS {
@@ -22,9 +21,9 @@ public class ISCS {
     private static String productURL;
     
     /**
-     * The main function for ISCS
-     * @param args command line arguements
-     * @throws IOException if error on read and write
+     * Initializes the ISCS server and resolves internal service endpoints from config.json.
+     * @param args command line arguments, expected to contain the path to config.json.
+     * @throws IOException if error occurs during file reading or server binding.
      */
     public static void main (String[] args) throws IOException {
         if (args.length < 1) {
@@ -63,7 +62,6 @@ public class ISCS {
 
     /**
      * The ISCSHandler examines incoming requests and sends them to the appropriate user/product service.
-     * 
      * @author Agnibha Misra
      */
     public static class ISCSHandler implements HttpHandler {

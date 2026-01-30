@@ -9,16 +9,15 @@ import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 /**
- * Add this later (come back to this)
+ * Utility class containing shared logic for parsing JSON strings and 
+ * handling HTTP network requests.
  */
 public class Helpers {
     /**
-     * return a string value for the given key. (MIGHT DELETE come back to this)
-     * 
-     * parseString(json, "username") -> "username1234"
-     * @param json the json string
-     * @param key the key for the key value pair
-     * @return String of the value
+     * Extracts a string value from a JSON string for a given key.
+     * @param json the JSON string to parse
+     * @param key the key to search for
+     * @return the string value associated with the key, or null if not found
      */
     public static String parseString (String json, String key) {
 
@@ -33,19 +32,18 @@ public class Helpers {
     }
 
     /**
-     * return a int value for the given key. (MIGHT DELETE come back to this)
-     * 
-     * parseString(json, "username") -> "username1234"
-     * @param json the json string
-     * @param key the key for the key value pair
-     * @return String of the value
+     * Extracts an integer value from a JSON string for a given key.
+     * @param json the JSON string to parse
+     * @param key the key to search for
+     * @return the integer value, or null if invalid or not found
      */
     public static Integer parseInteger(String json, String key) {
         // looks for pattern of ["key" : (int) 1234...]
-        Pattern pattern = Pattern.compile("\"" + key + "\"\\s*:\\s*([0-9]+)");
+        Pattern pattern = Pattern.compile("\"" + key + "\"\\s*:\\s*([-0-9.]+)");
         Matcher matcher = pattern.matcher(json);
         if (matcher.find()) {
             String value = matcher.group(1);
+            
             if (value.contains(".")) {
                 return null;
             }
@@ -60,16 +58,14 @@ public class Helpers {
     }
 
     /**
-     * return a float value for the given key. (MIGHT DELETE come back to this)
-     * 
-     * parseString(json, "username") -> "username1234"
-     * @param json the json string
-     * @param key the key for the key value pair
-     * @return String of the value
+     * Extracts a float value from a JSON string for a given key.
+     * @param json the JSON string to parse
+     * @param key the key to search for
+     * @return the float value, or null if invalid or not found
      */
     public static Float parseFloat(String json, String key) {
         // pattern looks for ["key" : (int) 1234.5678]
-        Pattern pattern = Pattern.compile("\"" + key + "\"\\s*:\\s*([0-9]+\\.[0-9]+|[0-9]+)");
+        Pattern pattern = Pattern.compile("\"" + key + "\"\\s*:\\s*(-?[0-9]+\\.[0-9]+|-?[0-9]+)");
         Matcher matcher = pattern.matcher(json);
         if (matcher.find()) {
             try {
@@ -116,12 +112,12 @@ public class Helpers {
     }
 
     /**
-     * helper function to send HTTP request
-     * @param url The url used to create the connection
-     * @param method The method of the request (post or get)
-     * @param body The actual message
-     * @return an Object[] array with the status code and the response 
-     * @throws IOException if error in reading and writing
+     * Sends an HTTP request and returns the status code and response body.
+     * @param url the destination URL
+     * @param method the HTTP method (GET, POST, etc.)
+     * @param body the request body for POST requests
+     * @return an Object array where [0] is the status code (int) and [1] is the response (String)
+     * @throws IOException if an I/O error occurs during the request
      */
     public static Object[] requestSend(String url, String method, String body) throws IOException {
         // use the url to create a connection
@@ -164,7 +160,7 @@ public class Helpers {
             
             scanner.close();
         }
-        return new Object[]{code, response}; 
+        return new Object[]{code, response};
     }
 
 

@@ -14,15 +14,19 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
 
+/**
+ * Service responsible for managing product inventory, including creation, 
+ * retrieval (info), updating, and deletion of products.
+ * @author Agnibha Misra
+ */
 public class ProductService {
     // memory database to store products
     private static final Map<Integer, String> productDataBase = new HashMap<>();
     
     /**
-     * The main function for the ProductService class
-     * 
-     * @param args the command line arguements
-     * @throws IOException if there is an error while writing or reading
+     * Entry point for the Product Service. Initializes the server based on config.json.
+     * @param args Command line arguments, expected to contain the path to config.json.
+     * @throws IOException If the configuration file cannot be read or the server fails to start.
      */
     public static void main(String[] args) throws IOException {
 
@@ -54,16 +58,13 @@ public class ProductService {
     }
 
     /**
-     * The http handler class for product Service
-     * 
-     * @author Agnibha Misra 
+     * HTTP Handler for processing all requests directed to the /product endpoint.
      */
     public static class ProductHandler implements HttpHandler {
         /**
-         * the handle method
-         * 
-         * @param exchange the http exchange object for the request and the response
-         * @throws IOException if there is an error in reading/writing 
+         * Dispatches the HTTP exchange to specific handlers based on the request method.
+         * @param exchange The HTTP exchange containing the request and response.
+         * @throws IOException If an I/O error occurs.
          */
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -211,7 +212,7 @@ public class ProductService {
                 }
 
                 // check for any mismatch
-                if (!DBName.equals(requestName) || DBQuantity != requestQuantity || (Math.abs(requestPrice - DBPrice) < 0.0001)) {
+                if (!DBName.equals(requestName) || DBQuantity != requestQuantity || (Math.abs(requestPrice - DBPrice) >= 0.0001)) {
                     byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(401, bytes.length);
                     OutputStream os = exchange.getResponseBody();
@@ -302,6 +303,24 @@ public class ProductService {
                 Float updatedPrice = Helpers.parseFloat(body, "price");
                 Integer updatedQuantity = Helpers.parseInteger(body, "quantity");
 
+                if (body.contains("\"price\"") && updatedPrice == null) {
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, bytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(bytes);
+                    os.close();
+                    return;
+                }
+
+                if (body.contains("\"quantity\"") && updatedQuantity == null) {
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, bytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(bytes);
+                    os.close();
+                    return;
+                }
+
                 // check if the parameters need updating, if so then update
                 if (updatedName != null) {
                     if (updatedName.isEmpty()) {
@@ -346,18 +365,6 @@ public class ProductService {
                         return;
                     }
                     quantity = updatedQuantity;
-                }
-
-                if (updatedPrice != null) {
-                    if (updatedPrice < 0) {
-                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
-                        exchange.sendResponseHeaders(400, bytes.length);
-                        OutputStream os = exchange.getResponseBody();
-                        os.write(bytes);
-                        os.close();
-                        return;
-                    }
-                    price = updatedPrice;
                 }
 
                 // create the new product JSON object and place it into the database

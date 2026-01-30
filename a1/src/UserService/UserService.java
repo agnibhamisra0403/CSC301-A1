@@ -16,19 +16,18 @@ import java.util.Map;
 import java.util.Scanner;
 
 /**
- * Class UserService to handle user(s) related operations. 
- * 
- * @author misraagn
-*/
+ * Service responsible for managing user accounts, including creation, 
+ * retrieval, updating, and deletion of user data.
+ * * @author Agnibha Misra
+ */
 public class UserService {
     // memory database to store users
     private static final Map<Integer, String> userDataBase = new HashMap<>();
 
     /**
-     * The main function for the UserService class
-     * 
-     * @param args the command line arguements
-     * @throws IOException if there is an error while writing or reading
+     * Starts the User Service.
+     * @param args command line arguments, index 0 should be the config file path
+     * @throws IOException if the config file cannot be read
      */
     public static void main(String[] args) throws IOException {
 
@@ -60,16 +59,13 @@ public class UserService {
     }
 
     /**
-     * The http handler class for userService
-     * 
-     * @author Agnibha Misra 
+     * HTTP Handler for processing all requests directed to the /user endpoint.
      */
     public static class UserHandler implements HttpHandler {
         /**
-         * the handle method
-         * 
-         * @param exchange the http exchange object for the request and the response
-         * @throws IOException if there is an error in reading/writing 
+         * Dispatches the HTTP exchange to specific handlers based on the request method.
+         * * @param exchange The HTTP exchange containing the request and response.
+         * @throws IOException If an I/O error occurs.
          */
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -108,10 +104,10 @@ public class UserService {
         }
 
         /**
-         * The GET method handler for the UserServices class
-         * @param exchange the Exchange object for the request and the response
-         * @param path the path for the request
-         * @throws IOException if error on writing or reading
+         * Processes GET requests to retrieve user information by ID.
+         * * @param exchange The HTTP exchange.
+         * @param path The request URI path.
+         * @throws IOException If an I/O error occurs.
          */
         private void get (HttpExchange exchange, String path) throws IOException{
 
@@ -156,10 +152,10 @@ public class UserService {
         }
 
         /**
-         * The POST method handler for the UserServices class
-         * @param exchange the Exchange object for the request and the response
-         * @param path the path for the request
-         * @throws IOException if error on writing or reading
+         * Processes POST requests for creating, updating, or deleting users.
+         * * @param exchange The HTTP exchange.
+         * @param path The request URI path.
+         * @throws IOException If an I/O error occurs.
          */
         private void post(HttpExchange exchange, String path) throws IOException {
             // read the request body
@@ -211,7 +207,7 @@ public class UserService {
                 String requestHashedPassword = passwordHasher(requestPassword);
 
                 if (DBUsername == null || requestUsername == null || DBEmail == null || requestEmail == null || requestEmail.equals("") || DBHashedPassword == null || requestHashedPassword == null) {
-                    byte[] bytes = "{\"status\": \"Cannot delete\"}".getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -220,7 +216,7 @@ public class UserService {
                 
                 // check for any mismatch
                 if (!DBEmail.equals(requestEmail) || !DBHashedPassword.equals(requestHashedPassword) || !DBUsername.equals(requestUsername)) {
-                    byte[] bytes = "{\"status\": \"Cannot delete (USER details do not match DataBase)\"}".getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(401, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -329,6 +325,45 @@ public class UserService {
                 String updatedEmail = Helpers.parseString(body, "email");
                 String updatedUsername = Helpers.parseString(body, "username");
                 String updatedPassword = Helpers.parseString(body, "password");
+                
+                // Check if the email key exists in the  JSON string
+                boolean hasEmail = body.contains("\"email\"");
+
+                if (hasEmail) {
+                    // If key exists but parseString is null
+                    if (updatedEmail == null) {
+                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(400, bytes.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(bytes);
+                        os.close();
+                        return;
+                    }
+
+                    // 3. Perform your existing @ validation
+                    if (!updatedEmail.contains("@")) {
+                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(400, bytes.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(bytes);
+                        os.close();
+                        return;
+                    }
+    
+                    // 4. Update the local variable if all checks pass
+                    email = updatedEmail;
+                }
+
+                // check if the email is valid
+                if (updatedEmail != null && !updatedEmail.contains("@")) {
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, bytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(bytes);
+                    os.close();
+                    return;
+                }
+
 
                 // check if the parameters need updating, if so then update
                 if (updatedEmail != null) {email = updatedEmail;}
@@ -347,16 +382,7 @@ public class UserService {
                     return;
                 }
 
-                // check if the email is valid
-                if (!updatedEmail.contains("@")) {
-                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
-                    exchange.sendResponseHeaders(400, bytes.length);
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(bytes);
-                    os.close();
-                    return;
-                }
-
+                
                 // check if the AI generated hash function actually outputted a valid hash
                 if (password == null) {
                     // send response based on the failure

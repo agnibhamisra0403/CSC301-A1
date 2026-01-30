@@ -152,7 +152,7 @@ public class OrderService {
                     Integer userID = Helpers.parseInteger(body, "user_id");
                     Integer quantity = Helpers.parseInteger(body, "quantity"); 
 
-                    if (productID == null || userID == null || quantity == null) {
+                    if (productID == null || userID == null || quantity == null || quantity <= 0) {
                         JsonSender(exchange, 400, "{\"status\": \"Invalid Request\"}");
                         return;
                     }
@@ -191,10 +191,7 @@ public class OrderService {
                     if ((int) updateResponse[0] == 200) {
                         // create a ID for the order
                         Random random = new Random();
-                        int orderID = random.nextInt(100000); 
-
-                        // save the Order locally for the sake of persistence
-                        locallySaveOrder(orderID, userID, productID, quantity);
+                        int orderID = random.nextInt(100000);
 
                         String jsonResponse = String.format("{\"id\": %d, \"product_id\": %d, \"user_id\": %d, \"quantity\": %d, \"status\": \"Success\"}", orderID, productID, userID, quantity);
                         
@@ -235,18 +232,6 @@ public class OrderService {
             os.close();
         }
 
-        /**
-         * Saves order information and metadata locally for the sake of persistence
-         * (come back to this)
-         * 
-         * @param orderID the orderID of the order being saved
-         * @param userID the userID of who placed the order
-         * @param productID the productID that was placed
-         * @param quantity quantity ordered
-         */
-        private void locallySaveOrder(int orderID, int userID, int productID, int quantity) {
-
-        }
     }
     
 }

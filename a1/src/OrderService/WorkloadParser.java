@@ -10,11 +10,18 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.net.ssl.HttpsURLConnection;
 
+/**
+ * Utility to parse workload files containing scripted commands for the microservices 
+ * and execute them by making HTTP requests to the OrderService.
+ */
 public class WorkloadParser {
     private static String orderServiceHttpUrl;
 
+    /**
+     * Entry point for the Workload Parser. Configures the target OrderService URL.
+     * @param args expects the workload file path as the first argument.
+     */
     public static void main(String[] args) {
 
         if (args.length < 1) {
@@ -28,7 +35,7 @@ public class WorkloadParser {
 
         try {
             // the config file    
-            String ConfigJson = new String(Files.readAllBytes(Paths.get("Config.json"))); 
+            String ConfigJson = new String(Files.readAllBytes(Paths.get("config.json"))); 
 
             String ip = parseConfigFile(ConfigJson, "OrderService", "ip");
             String port = parseConfigFile(ConfigJson, "OrderService", "port");
@@ -50,6 +57,10 @@ public class WorkloadParser {
         }
     }
 
+    /**
+     * Reads the workload file line by line and dispatches HTTP requests.
+     * @param file Path to the workload file.
+     */
     private static void workloadAction(String file) {
         try (BufferedReader br = new BufferedReader(new FileReader(file))) {
             // current line being iterated
@@ -154,6 +165,13 @@ public class WorkloadParser {
         }
     }
 
+    /**
+     * Extracts IP or Port from the config JSON for a specific service.
+     * @param json The raw JSON configuration string.
+     * @param service The name of the service (e.g., "OrderService").
+     * @param key The key to extract ("ip" or "port").
+     * @return The extracted value as a String, or null if not found.
+     */
     private static String parseConfigFile(String json, String service, String key) {
         Pattern pattern = Pattern.compile("\"" + service + "\"\\s*:\\s*\\{[^}]*\"" + key + "\"\\s*:\\s*\"?([^,\"}]+)\"?");
 
@@ -170,7 +188,7 @@ public class WorkloadParser {
             // URL object and opening connection
             URI uri = new URI(url);
             URL Url = uri.toURL();
-            HttpURLConnection connection = (HttpsURLConnection) Url.openConnection();
+            HttpURLConnection connection = (HttpURLConnection) Url.openConnection();
 
             // set the HTTP method to either get or post
             connection.setRequestMethod(method);
@@ -203,6 +221,11 @@ public class WorkloadParser {
         }
     }
 
+    /**
+     * Constructs the JSON payload for update operations.
+     * @param tokens The array of command tokens.
+     * @return A JSON string representing the update command.
+     */
     private static String updateJson(String[] tokens) {
         StringBuilder json = new StringBuilder();
         json.append("{\"command\":\"update").append("\", \"id\":").append(tokens[2]);
