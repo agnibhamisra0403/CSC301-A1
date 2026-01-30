@@ -12,7 +12,7 @@
         "ip": "127.0.0.1"
     }   ,
     "InterServiceCommunication": {
-        "port": 14008,
+        "port": 14002,
         "ip": "127.0.0.1"
     }   
 }
