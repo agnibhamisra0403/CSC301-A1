@@ -1,5 +1,9 @@
 package ProductService;
 
+import Helpers.Helpers;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -9,11 +13,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Scanner;
-
-import com.sun.net.httpserver.HttpServer;
-import Helpers.Helpers;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
 
 public class ProductService {
     // memory database to store products
@@ -168,7 +167,7 @@ public class ProductService {
             Integer id = Helpers.parseInteger(body, "id");
 
             // check for valid outputs
-            if (command == null || id == null) {
+            if (command == null || command.isEmpty() || id == null || id < 0) {
                 // send a message back, empty case
                 byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(400, bytes.length);
@@ -203,8 +202,8 @@ public class ProductService {
                 Integer requestQuantity = Helpers.parseInteger(body, "quantity");
 
                 // check if there was any error parsing the values
-                if ((DBName != null && requestName != null) || (DBPrice != null && requestPrice != null) || (DBQuantity != null && requestQuantity != null)) {
-                    byte[] bytes = "{\"status\": \"Cannot delete\"}".getBytes(StandardCharsets.UTF_8);
+                if ((DBName == null || requestName == null) || (DBPrice == null || requestPrice == null) || (DBQuantity == null || requestQuantity == null)) {
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -213,7 +212,7 @@ public class ProductService {
 
                 // check for any mismatch
                 if (!DBName.equals(requestName) || DBQuantity != requestQuantity || (Math.abs(requestPrice - DBPrice) < 0.0001)) {
-                    byte[] bytes = "{\"status\": \"Cannot delete (mismatch between databse and request)\"}".getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(401, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -224,7 +223,7 @@ public class ProductService {
                 else {
                     // send the success message
                     productDataBase.remove(id);
-                    byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -237,7 +236,7 @@ public class ProductService {
             else if (command.equalsIgnoreCase("create")) {
                 // check whether the product already is in the database
                 if (productDataBase.containsKey(id)) {
-                    byte[] bytes = "{\"status\": \"product already in database\"}".getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(409, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -252,7 +251,7 @@ public class ProductService {
                 Float price = Helpers.parseFloat(body, "price");
 
                 // check for bad inputs
-                if (name == null || description == null || quantity == null || quantity < 0 || price == null || price < 0) {
+                if (name == null || name.isEmpty() || description == null || quantity == null || quantity < 0 || price == null || price < 0) {
                     // send message back, empty case (failed parsing or bad request input)
                     byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
@@ -261,11 +260,11 @@ public class ProductService {
                     os.close();
                     return;
                 }
-                
-                String productObject = String.format("{\"id\": %d, \"name\": \"%s\", \"description\": \"%s\", \"price\": %.2f, \"quantity\": %d}", id, name, (description != null ? description : ""), price, quantity);
+
+                String productObject = String.format("{\"id\": %d, \"name\": \"%s\", \"description\": \"%s\", \"price\": %.2f, \"quantity\": %d}", id, name, description, price, quantity);
                 // put the product JSON obect into the data base and send a success message
                 productDataBase.put(id, productObject);
-                byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
+                byte[] bytes = productObject.getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
                 OutputStream os = exchange.getResponseBody();
                 os.write(bytes);
@@ -291,9 +290,97 @@ public class ProductService {
                 // pull the object from the databse
                 String productObject = productDataBase.get(id);
 
+                // get the non-updated metadata of the object
+                String name = Helpers.parseString(productObject, "name");
+                String description = Helpers.parseString(productObject, "description");
+                Float price = Helpers.parseFloat(productObject, "price");
+                Integer quantity = Helpers.parseInteger(productObject, "quantity");
 
+                // get the updated metadata of the object
+                String updatedName = Helpers.parseString(body, "name");
+                String updatedDescription = Helpers.parseString(body, "description");
+                Float updatedPrice = Helpers.parseFloat(body, "price");
+                Integer updatedQuantity = Helpers.parseInteger(body, "quantity");
 
+                // check if the parameters need updating, if so then update
+                if (updatedName != null) {
+                    if (updatedName.isEmpty()) {
+                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(400, bytes.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(bytes);
+                        os.close();
+                        return;
+                    }
+                    name = updatedName;
+                }
+                if  (updatedDescription != null) {
+                    if (updatedDescription.isEmpty()) {
+                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(400, bytes.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(bytes);
+                        os.close();
+                        return;
+                    }
+                    description = updatedDescription;
+                }
+                if (updatedPrice != null) {
+                    if (updatedPrice < 0) {
+                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(400, bytes.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(bytes);
+                        os.close();
+                        return;
+                    }
+                    price = updatedPrice;
+                }
+                if (updatedQuantity != null) {
+                    if (updatedQuantity < 0) {
+                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(400, bytes.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(bytes);
+                        os.close();
+                        return;
+                    }
+                    quantity = updatedQuantity;
+                }
 
+                if (updatedPrice != null) {
+                    if (updatedPrice < 0) {
+                        byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(400, bytes.length);
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(bytes);
+                        os.close();
+                        return;
+                    }
+                    price = updatedPrice;
+                }
+
+                // create the new product JSON object and place it into the database
+                String updatedObject = String.format("{\"id\": %d, \"name\": \"%s\", \"description\": \"%s\", \"price\": %.2f, \"quantity\": %d}", id, name, description, price, quantity);
+                productDataBase.put(id, updatedObject);
+                
+                // send the success response back
+                byte[] bytes = updatedObject.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                OutputStream os = exchange.getResponseBody();
+                os.write(bytes);
+                os.close();
+                return;
+
+            }
+            // unknown command case
+            else {
+                byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(400, bytes.length);
+                OutputStream os = exchange.getResponseBody();
+                os.write(bytes);
+                os.close();
+                return;
             }
         }
     }

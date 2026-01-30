@@ -185,7 +185,7 @@ public class OrderService {
                     remainingAmount -= quantity; 
                     
                     // the update request
-                    String updateRequest = String.format("{\\\"command\\\": \\\"update\\\", \\\"id\\\": %d, \\\"quantity\\\": %d}", productID, (int)remainingAmount);
+                    String updateRequest = String.format("{\"command\": \"update\", \"id\": %d, \"quantity\": %d}", productID, (int)remainingAmount);
                     Object[] updateResponse = Helpers.requestSend(InterServiceCommunicationURL + "/product", "POST", updateRequest);
 
                     if ((int) updateResponse[0] == 200) {

@@ -23,7 +23,7 @@ public class Helpers {
     public static String parseString (String json, String key) {
 
         // look for the pattern of ["key" : "someValue"]
-        Pattern pattern = Pattern.compile("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"");
+        Pattern pattern = Pattern.compile("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
         Matcher matcher = pattern.matcher(json);
         if (matcher.find()) {
             return matcher.group(1);
@@ -45,9 +45,13 @@ public class Helpers {
         Pattern pattern = Pattern.compile("\"" + key + "\"\\s*:\\s*([0-9]+)");
         Matcher matcher = pattern.matcher(json);
         if (matcher.find()) {
+            String value = matcher.group(1);
+            if (value.contains(".")) {
+                return null;
+            }
             try {
                 // format the value into an int
-                return Integer.parseInt(matcher.group(1));
+                return Integer.parseInt(value);
             } catch (NumberFormatException e) {
                 return null;
             }

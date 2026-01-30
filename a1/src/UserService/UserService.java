@@ -173,7 +173,7 @@ public class UserService {
             Integer id = Helpers.parseInteger(body, "id");
 
             // check for valid outputs
-            if (command == null || id == null) {
+            if (command == null || command.isEmpty() || id == null) {
                 // send a message back, empty case
                 byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(400, bytes.length);
@@ -210,7 +210,7 @@ public class UserService {
 
                 String requestHashedPassword = passwordHasher(requestPassword);
 
-                if (DBUsername == null || requestUsername == null || DBEmail == null || requestEmail == null || DBHashedPassword == null || requestHashedPassword == null) {
+                if (DBUsername == null || requestUsername == null || DBEmail == null || requestEmail == null || requestEmail.equals("") || DBHashedPassword == null || requestHashedPassword == null) {
                     byte[] bytes = "{\"status\": \"Cannot delete\"}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
                     OutputStream os = exchange.getResponseBody();
@@ -231,7 +231,7 @@ public class UserService {
                 else {
                     // send the success message
                     userDataBase.remove(id);
-                    byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -245,7 +245,7 @@ public class UserService {
                 
                 // check whether the user already is in the database
                 if (userDataBase.containsKey(id)) {
-                    byte[] bytes = "{\"status\": \"User already in database\"}".getBytes(StandardCharsets.UTF_8);
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(409, bytes.length);
                     OutputStream os = exchange.getResponseBody();
                     os.write(bytes);
@@ -257,8 +257,18 @@ public class UserService {
                 String username = Helpers.parseString(body, "username");
                 String password = Helpers.parseString(body, "password");
 
-                if (username == null || email == null || password == null) {
+                if (username == null || username.isEmpty() || email == null || email.isEmpty() || password == null || password.isEmpty()) {
                     // send message back, empty case (failed parsing or bad request input)
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, bytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(bytes);
+                    os.close();
+                    return;
+                }
+
+                // check if the email is valid
+                if (!email.contains("@")) {
                     byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(400, bytes.length);
                     OutputStream os = exchange.getResponseBody();
@@ -285,7 +295,7 @@ public class UserService {
 
                 // put the user JSON obect into the data base and send a success message
                 userDataBase.put(id, userObject);
-                byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
+                byte[] bytes = userObject.getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
                 OutputStream os = exchange.getResponseBody();
                 os.write(bytes);
@@ -321,9 +331,31 @@ public class UserService {
                 String updatedPassword = Helpers.parseString(body, "password");
 
                 // check if the parameters need updating, if so then update
-                if (updatedEmail != null) {email = updatedEmail;} 
+                if (updatedEmail != null) {email = updatedEmail;}
                 if (updatedUsername != null) {username = updatedUsername;}
                 if (updatedPassword != null) {password = passwordHasher(updatedPassword);}
+
+                if ((updatedEmail != null && updatedEmail.isEmpty()) || 
+                (updatedUsername != null && updatedUsername.isEmpty()) || 
+                (updatedPassword != null && updatedPassword.isEmpty())) {
+                    // send message back, empty case (failed parsing or bad request input)
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, bytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(bytes);
+                    os.close();
+                    return;
+                }
+
+                // check if the email is valid
+                if (!updatedEmail.contains("@")) {
+                    byte[] bytes = "{}".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, bytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(bytes);
+                    os.close();
+                    return;
+                }
 
                 // check if the AI generated hash function actually outputted a valid hash
                 if (password == null) {
@@ -341,7 +373,7 @@ public class UserService {
                 userDataBase.put(id, updatedUserObject);
 
                 // send the success response back
-                byte[] bytes = "{\"status\": \"Success\"}".getBytes(StandardCharsets.UTF_8);
+                byte[] bytes = updatedUserObject.getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
                 OutputStream os = exchange.getResponseBody();
                 os.write(bytes);
@@ -385,7 +417,7 @@ public class UserService {
                     if (hex.length() == 1) hexString.append('0');
                     hexString.append(hex);
                 }
-                return hexString.toString();
+                return hexString.toString().toUpperCase();
             } catch (Exception e) {
                 return null;
             }
